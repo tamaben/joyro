@@ -948,7 +948,8 @@
           this.exiledPlayer = null; this.killedByWolf = null; this.killedBySeer = null; 
           this.timerCount = 0; this.nightTargetText = ""; this.isFirstNight = true;
           this.isConfirmedByActor = false; this.currentDemoRole = null; this.currentHint = ""; 
-          this.isGameOver = false; this.godSeerTarget = null; this.actionQueue = if (this.timer) clearInterval(this.timer);
+          this.isGameOver = false; this.godSeerTarget = null; this.actionQueue =[];
+if (this.timer) clearInterval(this.timer);
           this.broadcastState();
         },
         nextGame() {
