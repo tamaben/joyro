@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ジョイ狼</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            uYellow: '#FFD93D', uBlue: '#4D96FF', uGreen: '#6BCB77',
+            uOrange: '#FF8B13', uCyan: '#00CFFA', uRed: '#FF6B6B',
+            uPurple: '#9D4EDD', uPink: '#FF70A6', uBg: '#232531'
+          },
+          fontFamily: { sans:['"Hiragino Maru Gothic ProN"', '"Noto Sans JP"', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <style>
+    [v-cloak] { display: none; }
+    body { background-color: #232531; color: white; margin: 0; overflow-x: hidden; touch-action: manipulation; }
+    /* Dynamic Backgrounds */
+    .bg-dynamic { transition: background 2s ease-in-out; background-size: 200% 200%; }
+    .bg-lobby { background: linear-gradient(to bottom right, #232531, #1A1C29); }
+    .bg-morning { background: linear-gradient(to bottom right, #2b5876, #4e4376); }
+    .bg-day { background: linear-gradient(to bottom right, #1e3c72, #2a5298); }
+    .bg-voting { background: linear-gradient(to bottom right, #B24592, #F15F79); }
+    .bg-night { background: linear-gradient(to bottom right, #0f2027, #203a43); }
+    
+    /* Animations */
+    @keyframes floatUp {
+      0% { transform: translateY(100vh) scale(0.5); opacity: 0; }
+      10% { opacity: 0.1; }
+      90% { opacity: 0.1; }
+      100% { transform: translateY(-20vh) scale(1.5); opacity: 0; }
+    }
+    .bubble {
+      position: absolute; border-radius: 50%; background: rgba(255, 255, 255, 0.8);
+      animation: floatUp linear infinite;
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .bounce-char { display: inline-block; animation: bounce 1.2s ease-in-out infinite; font-weight: 900; font-size: 2.25rem; }
+    @keyframes shake {
+      0%, 100% { transform: scale(1.4) rotate(0deg); }
+      25% { transform: scale(1.4) rotate(15deg); }
+      75% { transform: scale(1.4) rotate(-15deg); }
+    }
+    .reacting-icon { animation: shake 0.3s ease-in-out; color: #FFD93D !important; }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    .pulse-text { animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes symbol-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.9); }
+    }
+    .symbol-pulse { animation: symbol-pulse 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak class="min-h-screen relative flex flex-col bg-dynamic" :class="bgClass">
+    
+    <!-- Floating Bubbles (Lobby) -->
+    <div v-if="gameState === 'lobby'" class="absolute inset-0 overflow-hidden pointer-events-none">
+      <div v-for="i in 15" :key="i" class="bubble" :style="bubbleStyle(i)"></div>
+    </div>
+
+    <!-- Header -->
+    <div class="px-8 pt-6 pb-2 flex justify-between items-center z-10">
+      <div class="flex flex-col">
+        <div class="flex space-x-1">
+          <span v-for="(c, i) in 'ジョイ狼'" :key="i" class="bounce-char text-white" :style="`animation-delay: ${i * 0.1}s`">{{ c }}</span>
+        </div>
+        <span class="text-sm font-bold text-uYellow">みんなでワイワイ！</span>
+      </div>
+      <div class="px-4 py-2 bg-uGreen rounded-full font-bold text-black shadow-lg shadow-uGreen/40">
+        {{ gameStateText }}
+      </div>
+    </div>
+
+    <!-- Main Content Stage -->
+    <div class="flex-1 flex flex-col justify-center px-6 py-4 z-10 w-full max-w-2xl mx-auto">
+      
+      <!-- 1. Lobby -->
+      <div v-if="gameState === 'lobby'" class="flex flex-col space-y-6 items-center w-full">
+        <div v-if="!isHosting" class="flex w-full space-x-4">
+          <button @click="isHosting = true" class="flex-1 py-5 bg-uBlue rounded-full font-bold text-xl shadow-lg shadow-uBlue/40 transition active:scale-95">はじめる(ホスト)</button>
+        </div>
+        
+        <button @click="addSmartphonePlayer" class="w-full py-5 bg-uGreen rounded-full font-bold text-xl shadow-lg shadow-uGreen/40 transition active:scale-95">スマホ参加を追加</button>
+        
+        <div class="flex flex-col items-center space-y-2 text-center">
+          <div v-if="gamepadCount > 0" class="px-6 py-3 bg-white/10 rounded-full font-bold text-lg text-white flex items-center space-x-2">
+            <span>🎮</span><span>つながっているジョイコン: {{ gamepadCount }} 台</span>
+          </div>
+          <p v-else class="text-uCyan font-bold">コントローラーのボタンを押すと参加できるよ！</p>
+          <p class="text-white/60 font-bold text-sm">名前をタップすると変更できます</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 w-full max-h-[50vh] overflow-y-auto pb-4">
+          <div v-for="p in players" :key="p.id" class="flex flex-col items-center justify-center p-4 bg-white/10 rounded-3xl border-2 border-white/20 relative">
+            <div class="h-16 flex items-center justify-center text-5xl transition-transform" :class="{ 'reacting-icon': p.isReacting, 'text-white': !p.isReacting }">
+              🎮
+            </div>
+            <input v-model="p.name" class="mt-2 bg-black/30 text-uYellow font-bold text-center w-full py-2 px-2 rounded-xl focus:outline-none" />
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Role Setting -->
+      <div v-else-if="gameState === 'roleSetting'" class="flex flex-col items-center space-y-6">
+        <h2 class="text-3xl font-bold text-uYellow">【 配役せってい 】</h2>
+        <div class="flex space-x-3">
+          <button @click="applyPreset('少人数')" class="px-4 py-2 bg-uPink rounded-lg font-bold shadow active:scale-95">少人数</button>
+          <button @click="applyPreset('標準')" class="px-4 py-2 bg-uBlue rounded-lg font-bold shadow active:scale-95">標準</button>
+          <button @click="applyPreset('大人数')" class="px-4 py-2 bg-uOrange rounded-lg font-bold shadow active:scale-95">大人数</button>
+        </div>
+        <h3 class="text-2xl font-bold text-uGreen py-2">市民: {{ villagerCount }} 人</h3>
+        <div class="w-full max-h-64 overflow-y-auto space-y-3 pb-2">
+          <div v-for="role in assignableRoles" :key="role.id" class="flex items-center justify-center space-x-4">
+            <span class="text-xl font-bold w-32" :style="{ color: role.color }">{{ role.name }}</span>
+            <button @click="customRoleCounts[role.id] = Math.max(0, (customRoleCounts[role.id] || 0) - 1)" class="text-3xl">➖</button>
+            <span class="text-2xl font-bold w-10 text-center">{{ customRoleCounts[role.id] || 0 }}</span>
+            <button @click="incrementRole(role.id)" class="text-3xl">➕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Rules -->
+      <div v-else-if="gameState === 'rules'" class="flex flex-col items-center space-y-4 max-h-[60vh]">
+        <h2 class="text-3xl font-bold text-uYellow">【 ルールかくにん 】</h2>
+        <div class="overflow-y-auto space-y-4 w-full pr-2 pb-4">
+          <div class="bg-white/10 p-4 rounded-xl space-y-2" v-for="rule in rules" :key="rule.title">
+            <h3 class="text-xl font-bold text-uYellow">{{ rule.title }}</h3>
+            <p class="whitespace-pre-line leading-relaxed">{{ rule.text }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Role Breakdown -->
+      <div v-else-if="gameState === 'roleBreakdown'" class="flex flex-col items-center space-y-6">
+        <h2 class="text-4xl font-bold text-uYellow">【 今回の配役 】</h2>
+        <div v-for="r in Object.keys(roleDistribution)" :key="r" class="text-3xl font-bold" v-show="roleDistribution[r] > 0">
+          <span :style="{ color: getRoleColor(r) }">{{ getRoleName(r) }}</span>: {{ roleDistribution[r] }}人
+        </div>
+      </div>
+
+      <!-- 5. Vibration Demo -->
+      <div v-else-if="gameState === 'vibrationDemo'" class="flex flex-col items-center space-y-12">
+        <h2 class="text-4xl font-bold text-uYellow">振動のれんしゅう</h2>
+        <div v-if="currentDemoRole" class="w-64 h-64 rounded-full border-8 flex items-center justify-center relative" :style="{ borderColor: getRoleColor(currentDemoRole), backgroundColor: getRoleColor(currentDemoRole) + '33' }">
+          <span class="text-5xl font-black absolute" :style="{ color: getRoleColor(currentDemoRole) }">{{ getRoleName(currentDemoRole) }}</span>
+        </div>
+      </div>
+
+      <!-- 6. Role Notify -->
+      <div v-else-if="gameState === 'roleNotify'" class="flex flex-col items-center space-y-10">
+        <div class="text-9xl text-uGreen symbol-pulse">📡</div>
+        <h2 class="text-3xl font-bold text-uYellow">役職をくばっています...</h2>
+        <p class="text-4xl font-black">しずかにまってね</p>
+      </div>
+
+      <!-- 7. Role Reconfirm -->
+      <div v-else-if="gameState === 'roleReconfirm'" class="flex flex-col items-center space-y-6 w-full">
+        <h2 class="text-3xl font-bold text-uYellow">【 役職さいかくにん 】</h2>
+        <p class="text-xl font-bold text-center">自分の名前をタップすると<br>もう一度、役職の振動がなるよ！</p>
+        <div class="grid grid-cols-2 gap-4 w-full max-h-[45vh] overflow-y-auto pb-4">
+          <button v-for="p in players" :key="p.id" @click="reconfirmHaptic(p)" class="flex flex-col items-center justify-center p-4 bg-white/10 rounded-3xl border-2 border-white/30 transition active:scale-95 h-32">
+            <div class="text-4xl transition-transform mb-2" :class="{ 'reacting-icon': p.isReacting }">🎮</div>
+            <span class="font-bold text-xl">{{ p.name }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 8. Question Time -->
+      <div v-else-if="gameState === 'questionTime'" class="flex flex-col items-center space-y-10">
+        <h2 class="text-3xl font-bold text-uYellow">【 質問タイム 】</h2>
+        <div class="bg-uGreen rounded-2xl p-8 shadow-2xl w-full">
+          <p class="text-2xl font-black text-black text-center leading-snug">{{ currentQuestion }}</p>
+        </div>
+      </div>
+
+      <!-- 9. Day Discussion -->
+      <div v-else-if="gameState === 'dayDiscussion'" class="flex flex-col items-center space-y-8 w-full">
+        <h2 class="text-3xl font-bold text-uYellow">はなしあいタイム！</h2>
+        <div class="text-8xl font-black" :class="timerCount <= 10 ? 'text-uRed pulse-text' : 'text-white'">
+          {{ String(timerCount).padStart(3, '0') }}
+        </div>
+        <div class="bg-black/30 p-4 rounded-xl w-full">
+          <h3 class="text-xl font-bold text-uCyan mb-2">ワンポイントアドバイス</h3>
+          <p class="text-lg font-bold">{{ currentHint }}</p>
+        </div>
+      </div>
+
+      <!-- 12. Exile Result -->
+      <div v-else-if="gameState === 'exileResult'" class="flex flex-col items-center space-y-8 text-center">
+        <h2 class="text-3xl font-bold text-uYellow">とうひょうけっか</h2>
+        <template v-if="exiledPlayer">
+          <p class="text-2xl font-bold">一番あやしいと思われたのは...</p>
+          <p class="text-5xl font-black text-uRed py-4">【 {{ exiledPlayer.name }} 】</p>
+          <p class="text-2xl font-bold">追放されました</p>
+        </template>
+        <template v-else>
+          <p class="text-2xl font-bold">意見が割れたため...</p>
+          <p class="text-4xl font-bold text-uCyan py-4">本日の追放者は<br>いませんでした</p>
+        </template>
+      </div>
+
+      <!-- 15. Morning Result -->
+      <div v-else-if="gameState === 'morningResult'" class="flex flex-col items-center space-y-10">
+        <h2 class="text-4xl font-bold text-uYellow">朝が来ました</h2>
+        <div class="bg-white/10 p-10 rounded-3xl w-full text-center">
+          <p class="text-2xl font-bold whitespace-pre-line leading-relaxed">{{ nightTargetText }}</p>
+        </div>
+      </div>
+
+      <!-- 16. Result -->
+      <div v-else-if="gameState === 'result'" class="flex flex-col items-center space-y-6 w-full">
+        <h2 class="text-4xl font-black text-uRed pulse-text">ゲームしゅうりょう！</h2>
+        <div class="bg-uOrange px-8 py-4 rounded-full shadow-lg shadow-uOrange/50">
+          <p class="text-2xl font-black whitespace-pre-line text-center">{{ winnerText }}</p>
+        </div>
+        <div class="grid grid-cols-2 gap-4 w-full max-h-[40vh] overflow-y-auto pb-4">
+          <div v-for="p in players" :key="p.id" class="flex flex-col items-center justify-center p-4 rounded-3xl border-2 relative overflow-hidden" :style="{ backgroundColor: getRoleColor(p.role) + (p.isDead ? '4D' : 'FF'), borderColor: 'rgba(255,255,255,0.2)' }">
+            <div class="h-12 text-4xl mb-1 relative" :class="{ 'opacity-30': p.isDead }">🎮
+              <span v-if="p.isDead" class="absolute inset-0 flex items-center justify-center text-5xl text-uRed font-black shadow-black drop-shadow-md">✕</span>
+            </div>
+            <span class="font-bold text-lg mb-1" :class="{ 'line-through text-white/60': p.isDead }">{{ p.name }}</span>
+            <span class="px-3 py-1 bg-black/30 rounded-full text-sm font-bold">{{ getRoleName(p.role) }}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer Controls -->
+    <div class="p-6 z-10 w-full max-w-2xl mx-auto space-y-4">
+      <template v-if="gameState === 'lobby'">
+        <button @click="startAutoSequence" :disabled="players.length < 3" class="w-full py-5 rounded-full font-bold text-xl shadow-lg transition active:scale-95" :class="players.length < 3 ? 'bg-white/10 text-white/30' : 'bg-uRed text-white shadow-uRed/40'">
+          ゲームをはじめる
+        </button>
+      </template>
+      <template v-else-if="gameState === 'rules'">
+        <button @click="proceedFromRules" class="w-full py-5 bg-uGreen rounded-full font-bold text-xl shadow-lg shadow-uGreen/40 active:scale-95">かくにんして次へ</button>
+      </template>
+      <template v-else-if="gameState === 'roleReconfirm'">
+        <button @click="prepareNight" class="w-full py-5 bg-uBlue rounded-full font-bold text-xl shadow-lg shadow-uBlue/40 active:scale-95">夜の行動へすすむ</button>
+      </template>
+      <template v-else-if="gameState === 'questionTime'">
+        <button @click="startDay" class="w-full py-5 bg-uOrange rounded-full font-bold text-xl shadow-lg shadow-uOrange/40 active:scale-95">はなしあいへ</button>
+      </template>
+      <template v-else-if="gameState === 'dayDiscussion'">
+        <button @click="startVotingSequence" class="w-full py-5 bg-uOrange rounded-full font-bold text-xl shadow-lg shadow-uOrange/40 active:scale-95">はなしあいを終わる</button>
+      </template>
+      <template v-else-if="gameState === 'morningResult'">
+        <button v-if="isGameOver" @click="showResult" class="w-full py-5 bg-uRed rounded-full font-bold text-xl shadow-lg shadow-uRed/40 active:scale-95">結果を見る</button>
+        <button v-else @click="startQuestionTime" class="w-full py-5 bg-uGreen rounded-full font-bold text-xl shadow-lg shadow-uGreen/40 active:scale-95">次へすすむ</button>
+      </template>
+      <template v-else-if="gameState === 'result'">
+        <div class="flex space-x-4">
+          <button @click="resetGame" class="flex-1 py-5 bg-uCyan rounded-full font-bold text-xl shadow-lg shadow-uCyan/40 active:scale-95">ロビーへ</button>
+          <button @click="nextGame" class="flex-1 py-5 bg-uRed rounded-full font-bold text-xl shadow-lg shadow-uRed/40 active:scale-95">次のゲーム</button>
+        </div>
+      </template>
+    </div>
+
+    <!-- Interactive Overlay (Voting / Night Action) -->
+    <div v-if="['votingIdentity', 'votingAction', 'nightIdentity', 'nightAction'].includes(gameState)" class="absolute inset-0 bg-uBg/95 z-50 flex flex-col items-center justify-center p-8 text-center backdrop-blur-sm">
+      <div v-if="activePlayer" class="w-full max-w-2xl flex flex-col items-center space-y-8">
+        <div class="space-y-4 flex flex-col items-center">
+          <h2 class="text-3xl font-bold text-uYellow">あなたの番です</h2>
+          <p class="text-6xl font-black pulse-text">{{ activePlayer.name }}</p>
+          <span class="px-6 py-2 bg-uRed rounded-full font-bold text-xl">※本人のみ操作してね</span>
+        </div>
+        
+        <!-- Identity Check -->
+        <template v-if="['votingIdentity', 'nightIdentity'].includes(gameState)">
+          <button @click="handleScreenTap(null)" class="mt-8 p-10 rounded-[40px] border-4 border-white/40 bg-white/5 active:bg-white/10 transition">
+            <span class="text-3xl font-bold">画面をタップして開始</span>
+          </button>
+        </template>
+        
+        <!-- Action Selection -->
+        <template v-else>
+          <template v-if="isConfirmedByActor">
+            <div class="flex flex-col items-center space-y-8 mt-4">
+              <h2 class="text-4xl font-bold text-uGreen">{{ gameState === 'votingAction' ? '投票完了！' : 'アクション完了！' }}</h2>
+              <div v-if="nightTargetText" class="p-8 bg-uCyan rounded-3xl">
+                <p class="text-2xl font-bold text-black whitespace-pre-line">{{ nightTargetText }}</p>
+              </div>
+              <p class="text-xl font-bold text-white/60">数秒後に自動ですすみます...</p>
+            </div>
+          </template>
+          <template v-else>
+            <h3 class="text-2xl font-bold whitespace-pre-line text-uCyan">{{ actionPromptText }}</h3>
+            <div class="grid grid-cols-2 gap-4 w-full max-h-[50vh] overflow-y-auto pb-4">
+              <button v-for="t in actionTargets" :key="t.id" @click="handleScreenTap(t)" class="p-5 bg-white/10 rounded-3xl border-2 border-white/30 active:bg-white/20 transition h-28 flex items-center justify-center">
+                <span class="text-2xl font-bold" :class="{ 'line-through text-gray-400': t.isDead }">{{ t.name }}</span>
+              </button>
+            </div>
+            <button v-if="canSkip" @click="handleScreenTap(null, true)" class="px-10 py-4 bg-gray-500 rounded-full font-bold text-xl mt-4 active:scale-95">
+              スキップする
+            </button>
+          </template>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const Roles = {
+      villager: { id: 'villager', name: '市民', color: '#6BCB77' },
+      werewolf: { id: 'werewolf', name: '人狼', color: '#FF6B6B' },
+      seer: { id: 'seer', name: '占い師', color: '#4D96FF' },
+      knight: { id: 'knight', name: '騎士', color: '#4D96FF' },
+      traitor: { id: 'traitor', name: '狂人', color: '#FF8B13' },
+      medium: { id: 'medium', name: '霊媒師', color: '#00CFFA' },
+      fool: { id: 'fool', name: 'てるてる', color: '#FFD93D' },
+      fox: { id: 'fox', name: '妖狐', color: '#9D4EDD' },
+      cursed: { id: 'cursed', name: '呪われし者', color: '#6BCB77' },
+      sage: { id: 'sage', name: '賢者', color: '#4D96FF' },
+      sorcerer: { id: 'sorcerer', name: '妖術師', color: '#FF8B13' },
+      freemason: { id: 'freemason', name: '共有者', color: '#6BCB77' },
+      baker: { id: 'baker', name: 'パン屋', color: '#6BCB77' },
+      god: { id: 'god', name: '神', color: '#4D96FF' },
+      ghost: { id: 'ghost', name: '幽霊', color: '#00CFFA' },
+      ghostApprentice: { id: 'ghostApprentice', name: '幽霊の見習い', color: '#00CFFA' }
+    };
+
+    const GameStates = {
+      lobby:"じゅんびちゅう", roleSetting:"配役せってい", rules:"ルールかくにん", roleBreakdown:"配役かくにん", 
+      vibrationDemo:"リハーサル", roleNotify:"役職くばり", roleReconfirm:"役職さいかくにん", 
+      questionTime:"質問タイム", dayDiscussion:"はなしあい", votingIdentity:"本人かくにん(投票)", 
+      votingAction:"だれにする？", exileResult:"とうひょうけっか", nightIdentity:"本人かくにん(夜)", 
+      nightAction:"アクション", morningResult:"朝が来ました", result:"けっか"
+    };
+
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          gameState: 'lobby',
+          isHosting: false,
+          players:[],
+          customRoleCounts: {},
+          roleDistribution: {},
+          currentDemoRole: null,
+          actionQueue:[],
+          timerCount: 0,
+          winnerText: "",
+          nightTargetText: "",
+          killedByWolf: null,
+          killedBySeer: null,
+          exiledPlayer: null,
+          godSeerTarget: null,
+          isFirstNight: true,
+          isConfirmedByActor: false,
+          isGameOver: false,
+          currentQuestion: "",
+          currentHint: "",
+          timer: null,
+          rules:[
+            { title: "ゲームの流れ", text: "夜に役職アクションを行い、昼に全員で話し合って「人狼」だと思う人を多数決で1人処刑します。\nジョイコンやスマホの『振動のちがい』で自分の役職を知ることができます。" },
+            { title: "市民陣営の勝利", text: "村にいる「人狼」をすべて処刑できれば勝利！" },
+            { title: "人狼陣営の勝利", text: "生き残っている「人狼」の数が、「市民」の数と同数以上になれば勝利！" },
+            { title: "神・幽霊について", text: "神：選んだ人を占い、同時に人狼の襲撃から守ります。\n幽霊：夜に「死者」を蘇生（2回まで）か、「生存者」を乗っ取る（1回のみ）ことができます。スキップも可能。\n乗っ取ると幽霊はその人の役職になり、乗っ取られた人は『幽霊の見習い』になります。" },
+            { title: "単独勝利", text: "てるてる：自分が昼の投票で処刑されると単独勝利。\n妖狐：人狼か市民が勝利条件を満たした時、妖狐が生きていれば勝利を横取りします。" }
+          ],
+          questions:[
+            "せーのっ！で、今一番「あやしい」と思う人を指差そう！",
+            "せーのっ！で、絶対に「市民」だと思う人を指差そう！",
+            "夜の間に、一番長く震えていた人はだれ？",
+            "せーのっ！で、話し合いで一番最初に発言してほしい人を指差そう！",
+            "なんとなく、嘘をついているような気がする人はだれ？"
+          ],
+          discussionHints:[
+            "占い師は結果を早く発表して情報を落とそう！",
+            "人狼は、誰かを占い師に仕立て上げると有利かも？",
+            "騎士は、役職者を夜に守ってあげよう！",
+            "市民は「どうしてそう思ったの？」と理由を聞いてみよう。",
+            "霊媒師は、昨日処刑された人が人狼だったか教えよう！",
+            "妖術師や狂人は、占い師のフリをして場を乱そう！"
+          ]
+        }
+      },
+      computed: {
+        gameStateText() { return GameStates[this.gameState] || ""; },
+        bgClass() {
+          if (this.gameState === 'morningResult') return 'bg-morning';
+          if (['dayDiscussion', 'questionTime'].includes(this.gameState)) return 'bg-day';
+          if (['votingIdentity', 'votingAction', 'exileResult'].includes(this.gameState)) return 'bg-voting';
+          if (['nightIdentity', 'nightAction', 'roleReconfirm', 'roleNotify'].includes(this.gameState)) return 'bg-night';
+          return 'bg-lobby';
+        },
+        gamepadCount() { return this.players.filter(p => p.gamepadIndex !== null).length; },
+        assignableRoles() {
+          return Object.values(Roles).filter(r => !['villager', 'ghostApprentice'].includes(r.id));
+        },
+        villagerCount() {
+          const assigned = Object.values(this.customRoleCounts).reduce((a, b) => a + b, 0);
+          return Math.max(0, this.players.length - assigned);
+        },
+        activePlayer() { return this.actionQueue.length > 0 ? this.actionQueue[0] : null; },
+        actionPromptText() {
+          if (this.gameState === 'votingAction') return "一番あやしいと思う人に\n投票してね";
+          if (!this.activePlayer) return "えらんでね";
+          switch (this.activePlayer.role) {
+            case 'werewolf': return "襲撃する人をえらんでね";
+            case 'seer': case 'sage': case 'sorcerer': return "占う人をえらんでね";
+            case 'knight': return "守る人をえらんでね";
+            case 'god': return this.godSeerTarget == null ? "占う人をえらんでね" : "守る人をえらんでね";
+            case 'ghost': 
+              if (this.activePlayer.reviveCount < 2 || !this.activePlayer.hasPossessed) return "生き返らせる人、または\n乗っ取る人をえらんでね";
+              return "能力を使い切りました\nスキップしてください";
+            default: return "えらんでね";
+          }
+        },
+        actionTargets() {
+          if (!this.activePlayer) return[];
+          if (this.gameState === 'nightAction' && this.activePlayer.role === 'ghost') {
+            let tgts =[];
+            if (this.activePlayer.reviveCount < 2) tgts.push(...this.players.filter(p => p.isDead));
+            if (!this.activePlayer.hasPossessed) tgts.push(...this.players.filter(p => !p.isDead && p.id !== this.activePlayer.id));
+            return tgts;
+          }
+          return this.players.filter(p => !p.isDead && p.id !== this.activePlayer.id);
+        },
+        canSkip() {
+          if (!this.activePlayer) return false;
+          return this.gameState === 'nightAction' && this.activePlayer.role === 'ghost';
+        }
+      },
+      mounted() {
+        window.addEventListener("gamepadconnected", (e) => {
+          if (this.gameState === 'lobby') {
+            if (!this.players.find(p => p.gamepadIndex === e.gamepad.index)) {
+              this.players.push(this.createPlayer(`🎮 プレイヤー ${e.gamepad.index + 1}`, e.gamepad.index));
+            }
+          }
+        });
+        this.pollGamepads();
+      },
+      methods: {
+        bubbleStyle(i) {
+          const s = Math.random() * 80 + 40;
+          return `width:${s}px; height:${s}px; left:${Math.random() * 100}%; animation-duration:${Math.random() * 10 + 10}s; animation-delay:${Math.random() * 5}s;`;
+        },
+        createPlayer(name, gamepadIndex = null) {
+          return { id: crypto.randomUUID(), name, gamepadIndex, role: 'villager', isDead: false, voteCount: 0, isProtected: false, isReacting: false, reviveCount: 0, hasPossessed: false };
+        },
+        addSmartphonePlayer() { this.players.push(this.createPlayer(`📱 スマホ参加 ${this.players.length + 1}`)); this.playHaptic(this.players[this.players.length-1]); },
+        pollGamepads() {
+          if (this.gameState === 'lobby') {
+            const gps = navigator.getGamepads();
+            this.players.forEach(p => {
+              if (p.gamepadIndex !== null && gps[p.gamepadIndex]) {
+                const gp = gps[p.gamepadIndex];
+                if (gp.buttons.some(b => b.pressed) && !p.isReacting) {
+                  p.isReacting = true;
+                  this.playHaptic(p);
+                  setTimeout(() => { p.isReacting = false; }, 300);
+                }
+              }
+            });
+          }
+          requestAnimationFrame(this.pollGamepads);
+        },
+        playHaptic(player, roleId = null) {
+          let pattern = [100];
+          if (roleId) {
+            switch(roleId) {
+              case 'werewolf': pattern =[200, 400, 200]; break;
+              case 'seer': case 'sage': pattern =[100, 200, 100, 200, 100]; break;
+              case 'knight': pattern = [800]; break;
+              case 'traitor': case 'sorcerer': pattern = [100, 300, 100]; break;
+              case 'medium': pattern = [600]; break;
+              case 'fool': pattern =[100, 50, 100, 100, 100]; break;
+              case 'fox': pattern = [200, 100, 200]; break;
+              case 'cursed': pattern = [1000]; break;
+              case 'freemason': pattern =[100, 100, 100, 100, 100]; break;
+              case 'baker': pattern = [400]; break;
+              case 'god': pattern =[100, 100, 100, 100, 800]; break;
+              case 'ghost': pattern = [1500]; break;
+              case 'ghostApprentice': pattern =[200, 100, 1000]; break;
+              case 'villager': pattern =[]; break;
+            }
+          }
+          if (pattern.length === 0) return;
+          
+          if (player && player.gamepadIndex !== null) {
+            const gp = navigator.getGamepads()[player.gamepadIndex];
+            if (gp && gp.vibrationActuator) {
+              gp.vibrationActuator.playEffect('dual-rumble', { duration: pattern.reduce((a,b)=>a+b, 0), weakMagnitude: 0.8, strongMagnitude: 0.8 }).catch(()=>{});
+            }
+          } else if (navigator.vibrate) {
+            navigator.vibrate(pattern);
+          }
+        },
+        playAttention() { if (navigator.vibrate) navigator.vibrate([300, 100, 200]); },
+        getRoleColor(id) { return Roles[id]?.color || '#FFFFFF'; },
+        getRoleName(id) { return Roles[id]?.name || id; },
+        applyPreset(mode) {
+          this.customRoleCounts = {};
+          if (mode === '少人数') { this.customRoleCounts['werewolf'] = 1; this.customRoleCounts['seer'] = 1; this.customRoleCounts['fool'] = 1; }
+          if (mode === '標準') { this.customRoleCounts['werewolf'] = 2; this.customRoleCounts['seer'] = 1; this.customRoleCounts['knight'] = 1; this.customRoleCounts['medium'] = 1; this.customRoleCounts['traitor'] = 1; }
+          if (mode === '大人数') { this.customRoleCounts['werewolf'] = 3; this.customRoleCounts['sage'] = 1; this.customRoleCounts['knight'] = 1; this.customRoleCounts['medium'] = 1; this.customRoleCounts['sorcerer'] = 1; this.customRoleCounts['fox'] = 1; this.customRoleCounts['god'] = 1; this.customRoleCounts['ghost'] = 1; }
+        },
+        incrementRole(id) {
+          const total = this.players.length;
+          const assigned = Object.values(this.customRoleCounts).reduce((a, b) => a + b, 0);
+          if (assigned < total) this.customRoleCounts[id] = (this.customRoleCounts[id] || 0) + 1;
+        },
+        startAutoSequence() { this.applyPreset('標準'); this.gameState = 'roleSetting'; },
+        proceedFromRules() {
+          this.roleDistribution = { ...this.customRoleCounts };
+          this.roleDistribution['villager'] = this.villagerCount;
+          this.gameState = 'roleBreakdown';
+          setTimeout(() => {
+            this.gameState = 'vibrationDemo';
+            const demoRoles = Object.keys(this.roleDistribution).filter(r => this.roleDistribution[r] > 0 && !['villager', 'ghostApprentice'].includes(r));
+            this.runDemoRecursively(demoRoles, 0);
+          }, 3500);
+        },
+        runDemoRecursively(roles, index) {
+          if (index >= roles.length) { setTimeout(() => this.assignAllRolesSimultaneously(), 1000); return; }
+          this.currentDemoRole = roles[index];
+          this.players.forEach(p => this.playHaptic(p, roles[index]));
+          setTimeout(() => this.runDemoRecursively(roles, index + 1), 3000);
+        },
+        assignAllRolesSimultaneously() {
+          let list = [];
+          Object.entries(this.roleDistribution).forEach(([r, c]) => { for(let i=0; i<c; i++) list.push(r); });
+          while(list.length < this.players.length) list.push('villager');
+          list.sort(() => Math.random() - 0.5);
+          this.players.forEach((p, i) => { p.role = list[i]; p.isDead = false; });
+          
+          this.gameState = 'roleNotify';
+          this.players.forEach(p => this.playHaptic(p, p.role));
+          setTimeout(() => { this.gameState = 'roleReconfirm'; }, 6000);
+        },
+        reconfirmHaptic(p) { p.isReacting = true; this.playHaptic(p, p.role); setTimeout(() => p.isReacting = false, 500); },
+        prepareNight() {
+          this.killedByWolf = null; this.killedBySeer = null; this.godSeerTarget = null;
+          this.players.forEach(p => {
+            p.isProtected = false;
+            if (p.role === 'ghostApprentice') { p.role = 'ghost'; p.reviveCount = 0; p.hasPossessed = false; }
+          });
+          const alive = this.players.filter(p => !p.isDead);
+          this.actionQueue = this.isFirstNight ? [...alive].sort(() => Math.random() - 0.5) 
+            : alive.filter(p =>['werewolf', 'seer', 'knight', 'medium', 'sage', 'sorcerer', 'god', 'ghost'].includes(p.role)).sort(() => Math.random() - 0.5);
+          
+          if (this.actionQueue.length === 0) this.finalizeDawn();
+          else this.proceedActor();
+        },
+        proceedActor() {
+          if (this.actionQueue.length === 0) { this.finalizeDawn(); return; }
+          this.isConfirmedByActor = false;
+          this.gameState = 'nightIdentity';
+          this.nightTargetText = "";
+          this.playHaptic(this.activePlayer);
+        },
+        handleScreenTap(target, isSkip = false) {
+          if (['votingIdentity', 'nightIdentity'].includes(this.gameState) || this.isConfirmedByActor) {
+            this.confirmIdentityOrFinishAction();
+            return;
+          }
+          if (isSkip) { this.confirmAction(null); return; }
+          if (target) this.confirmAction(target);
+        },
+        confirmIdentityOrFinishAction() {
+          if (this.isConfirmedByActor) {
+            this.isConfirmedByActor = false;
+            this.finalizeAction();
+          } else {
+            this.playHaptic(this.activePlayer);
+            this.gameState = this.gameState === 'votingIdentity' ? 'votingAction' : 'nightAction';
+            if (this.gameState === 'nightAction') {
+              const r = this.activePlayer.role;
+              if (['medium', 'baker', 'freemason', 'fool', 'fox', 'cursed'].includes(r)) {
+                this.isConfirmedByActor = true;
+                if (r === 'medium' && !this.isFirstNight && this.exiledPlayer) {
+                  this.nightTargetText = `昨日追放された人は\n【 ${this.exiledPlayer.role === 'werewolf' ? '人狼' : '人狼ではありません'} 】でした`;
+                }
+                setTimeout(() => { if (this.isConfirmedByActor) this.confirmIdentityOrFinishAction(); }, 3000);
+              }
+            }
+          }
+        },
+        confirmAction(t) {
+          const act = this.activePlayer;
+          if (t) {
+            if (this.gameState === 'votingAction') {
+              t.voteCount++;
+              this.playHaptic(act);
+            } else {
+              if (act.role === 'god' && !this.godSeerTarget) {
+                this.godSeerTarget = t;
+                this.playHaptic(act);
+                return;
+              }
+              this.playHaptic(act);
+              
+              if (act.role === 'werewolf') this.killedByWolf = t;
+              else if (act.role === 'seer') {
+                const isW = t.role === 'werewolf' || t.role === 'cursed';
+                this.nightTargetText = isW ? "【 人狼 】でした" : "【 人狼ではありません 】でした";
+                if (t.role === 'fox') this.killedBySeer = t;
+              } else if (['sage', 'sorcerer'].includes(act.role)) {
+                this.nightTargetText = `【 ${this.getRoleName(t.role)} 】でした`;
+                if (t.role === 'fox' && act.role === 'sage') this.killedBySeer = t;
+              } else if (act.role === 'knight') t.isProtected = true;
+              else if (act.role === 'god') {
+                const isW = this.godSeerTarget.role === 'werewolf' || this.godSeerTarget.role === 'cursed';
+                this.nightTargetText = `占いの結果:\n${isW ? '【 人狼 】でした' : '【 人狼ではありません 】でした'}\n\n(【 ${t.name} 】を護衛しました)`;
+                if (this.godSeerTarget.role === 'fox') this.killedBySeer = this.godSeerTarget;
+                t.isProtected = true;
+                this.godSeerTarget = null;
+              } else if (act.role === 'ghost') {
+                if (t.isDead) {
+                  t.isDead = false; act.reviveCount++;
+                  this.nightTargetText = `死者の魂が呼び戻されました...\n【 ${t.name} 】が\n生き返りました！`;
+                  this.playHaptic(t, t.role);
+                } else {
+                  const st = t.role; t.role = 'ghostApprentice'; act.role = st; act.hasPossessed = true;
+                  this.nightTargetText = `幽霊がとり憑きました...\n【 ${t.name} 】は\n【 幽霊の見習い 】になりました！\n\nあなたは【 ${this.getRoleName(st)} 】になりました`;
+                  this.playHaptic(t, 'ghostApprentice');
+                }
+              }
+            }
+          } else if (act.role === 'ghost') {
+            this.nightTargetText = "なにもしませんでした";
+          }
+          this.isConfirmedByActor = true;
+          setTimeout(() => { if (this.isConfirmedByActor) this.confirmIdentityOrFinishAction(); }, 3000);
+        },
+        finalizeAction() {
+          this.nightTargetText = "";
+          if (this.actionQueue.length > 0) this.actionQueue.shift();
+          if (this.gameState === 'votingAction') this.proceedVoter();
+          else this.proceedActor();
+        },
+        finalizeDawn() {
+          this.playAttention();
+          let vics =[];
+          if (!this.isFirstNight) {
+            if (this.killedByWolf && !this.killedByWolf.isProtected) { this.killedByWolf.isDead = true; vics.push(this.killedByWolf.name); }
+            if (this.killedBySeer) { this.killedBySeer.isDead = true; vics.push(this.killedBySeer.name); }
+          }
+          let vName = vics.length === 0 ? "昨晩の犠牲者はいませんでした" : `犠牲者: 【 ${vics.join(' と ')} 】`;
+          if (this.players.some(p => !p.isDead && p.role === 'baker') && !this.isFirstNight) vName += "\n\n(おいしいパンが焼き上がりました)";
+          
+          this.isGameOver = this.checkWin(true);
+          this.nightTargetText = vName;
+          this.gameState = 'morningResult';
+          
+          if (this.isGameOver) {
+            setTimeout(() => { this.checkWin(false); }, 4000);
+          }
+        },
+        startQuestionTime() {
+          if (this.isGameOver) return;
+          this.isFirstNight = false;
+          this.currentQuestion = this.questions[Math.floor(Math.random() * this.questions.length)];
+          this.gameState = 'questionTime';
+        },
+        startDay() {
+          this.nightTargetText = "";
+          this.currentHint = this.discussionHints[Math.floor(Math.random() * this.discussionHints.length)];
+          this.timerCount = 180;
+          this.gameState = 'dayDiscussion';
+          this.timer = setInterval(() => {
+            if (this.timerCount > 0) this.timerCount--;
+            else { clearInterval(this.timer); this.startVotingSequence(); }
+          }, 1000);
+        },
+        startVotingSequence() {
+          clearInterval(this.timer);
+          this.players.forEach(p => p.voteCount = 0);
+          this.actionQueue = this.players.filter(p => !p.isDead).sort(() => Math.random() - 0.5);
+          this.proceedVoter();
+        },
+        proceedVoter() {
+          if (this.actionQueue.length === 0) { this.finalizeVote(); return; }
+          this.isConfirmedByActor = false;
+          this.gameState = 'votingIdentity';
+          this.playHaptic(this.activePlayer);
+        },
+        finalizeVote() {
+          const alive = this.players.filter(p => !p.isDead);
+          const maxV = Math.max(...alive.map(p => p.voteCount));
+          const ts = alive.filter(p => p.voteCount === maxV);
+          
+          this.playAttention();
+          if (ts.length === 1) {
+            const loser = ts[0]; loser.isDead = true; this.exiledPlayer = loser;
+          } else { this.exiledPlayer = null; }
+          
+          this.isGameOver = this.checkWin(true);
+          this.gameState = 'exileResult';
+          setTimeout(() => {
+            if (this.isGameOver) this.checkWin(false);
+            else this.prepareNight();
+          }, 4000);
+        },
+        checkWin(dryRun = false) {
+          if (this.exiledPlayer && this.exiledPlayer.role === 'fool' && this.exiledPlayer.isDead) {
+            if (!dryRun) this.setWinner("てるてるのひとり勝ち！\n(処刑成功)");
+            return true;
+          }
+          const w = this.players.filter(p => !p.isDead && p.role === 'werewolf').length;
+          const h = this.players.filter(p => !p.isDead && !['werewolf', 'fox', 'fool'].includes(p.role)).length;
+          const fox = this.players.some(p => !p.isDead && p.role === 'fox');
+          
+          if (w === 0) {
+            if (!dryRun) this.setWinner(fox ? "妖狐のひとり勝ち！\n(人狼全滅)" : "市民チームの勝ち！");
+            return true;
+          }
+          if (w >= h && w > 0) {
+            if (!dryRun) this.setWinner(fox ? "妖狐のひとり勝ち！\n(人狼支配)" : "人狼チームの勝ち！");
+            return true;
+          }
+          return false;
+        },
+        setWinner(text) {
+          this.winnerText = text;
+          this.gameState = 'result';
+        },
+        showResult() { this.checkWin(false); },
+        resetGame() {
+          this.gameState = 'lobby';
+          this.players.forEach(p => { p.isDead = false; p.voteCount = 0; p.isProtected = false; p.isReacting = false; p.reviveCount = 0; p.hasPossessed = false; p.role = 'villager'; });
+          this.exiledPlayer = null; this.killedByWolf = null; this.killedBySeer = null; this.timerCount = 0; this.nightTargetText = ""; this.isFirstNight = true;
+          this.isConfirmedByActor = false; this.currentDemoRole = null; this.currentHint = ""; this.isGameOver = false; this.godSeerTarget = null; this.actionQueue = [];
+          if (this.timer) clearInterval(this.timer);
+        },
+        nextGame() {
+          this.resetGame();
+          setTimeout(() => { this.startAutoSequence(); }, 500);
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
